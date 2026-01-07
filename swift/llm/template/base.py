@@ -26,7 +26,7 @@ from transformers.utils import strtobool
 from swift.llm import to_device
 from swift.utils import get_env_args, get_logger, retry_decorator
 from ..utils import Processor, ProcessorMixin
-from .template_inputs import InferRequest, StdTemplateInputs, TemplateInputs
+from .template_inputs import InferRequest, StdTemplateInputs, TemplateInputs, TensorVideoInferRequest
 from .utils import Context, ContextType, StopWordsCriteria, fetch_one, findall, get_last_user_round, split_str_parts_by
 from .vision_utils import load_audio, load_batch, load_image, rescale_image
 
@@ -506,7 +506,7 @@ class Template(ProcessorMixin):
         """
         assert self._processor_inited, ('Please initialize the processor before calling the template.encode method: '
                                         'template.init_processor(processor).')
-        if isinstance(inputs, InferRequest):
+        if isinstance(inputs, (InferRequest, TensorVideoInferRequest)):
             inputs = asdict(inputs)
 
         if isinstance(inputs, dict):
@@ -1273,6 +1273,7 @@ class Template(ProcessorMixin):
             keys = ['images', 'audios', 'videos']
             if self.mode == 'vllm':
                 keys.append('mm_processor_kwargs')
+                keys.append('mm_uuids')  # User-provided UUIDs to skip hash computation
             for key in keys:
                 value = getattr(inputs, key)
                 if value:

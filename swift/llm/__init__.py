@@ -18,7 +18,7 @@ if TYPE_CHECKING:
                            AppArguments, SamplingArguments)
     from .template import (TEMPLATE_MAPPING, Template, Word, get_template, TemplateType, register_template,
                            TemplateInputs, TemplateMeta, get_template_meta, InferRequest, load_image, MaxLengthError,
-                           load_file, draw_bbox, RolloutInferRequest)
+                           load_file, draw_bbox, RolloutInferRequest, TensorVideoInferRequest)
     from .model import (register_model, MODEL_MAPPING, ModelType, get_model_tokenizer, safe_snapshot_download,
                         HfConfigFactory, ModelInfo, ModelMeta, ModelKeys, register_model_arch, MultiModelKeys,
                         ModelArch, get_model_arch, MODEL_ARCH_MAPPING, get_model_info_meta, get_model_name, ModelGroup,
@@ -54,7 +54,7 @@ else:
         'template': [
             'TEMPLATE_MAPPING', 'Template', 'Word', 'get_template', 'TemplateType', 'register_template',
             'TemplateInputs', 'TemplateMeta', 'get_template_meta', 'InferRequest', 'load_image', 'MaxLengthError',
-            'load_file', 'draw_bbox', 'RolloutInferRequest'
+            'load_file', 'draw_bbox', 'RolloutInferRequest', 'TensorVideoInferRequest'
         ],
         'model': [
             'MODEL_MAPPING', 'ModelType', 'get_model_tokenizer', 'safe_snapshot_download', 'HfConfigFactory',

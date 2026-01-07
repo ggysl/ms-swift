@@ -102,6 +102,80 @@ register_template(
         template_cls=InternvlTemplate,
         auto_add_bos=True))
 
+import os
+import time
+import numpy as np
+from PIL import Image
+from multiprocessing import shared_memory
+from concurrent.futures import ThreadPoolExecutor
+import cv2
+
+# 用 OpenCV 加速 resize，然后转回 PIL
+def resize_to_pil(np_img):
+    """将单张图片 resize 到 448x448 并转为 PIL"""
+    resized = cv2.resize(np_img, (448, 448), interpolation=cv2.INTER_AREA)
+    return Image.fromarray(resized)
+
+# 保留旧函数用于兼容磁盘图像处理
+def crop_resize_return_pil(np_img):
+    top_half = np_img[0:1080, :, :]
+    side_half = np_img[1080:2160, :, :]
+    top_resized = cv2.resize(top_half, (448, 448), interpolation=cv2.INTER_AREA)
+    side_resized = cv2.resize(side_half, (448, 448), interpolation=cv2.INTER_AREA)
+    return Image.fromarray(top_resized), Image.fromarray(side_resized)
+
+# 处理磁盘图像
+
+def process_disk_image(path):
+    # 读取中文路径图片
+    data = np.fromfile(path, dtype=np.uint8)
+    image_np = cv2.imdecode(data, cv2.IMREAD_COLOR)
+    try :
+        image_np = image_np[:, :, ::-1]  # BGR -> RGB
+    except :
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!errerrerr!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        print(path)
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!errerrerr!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+    return crop_resize_return_pil(image_np)
+
+# def process_disk_image(path):
+#     image_np = cv2.imread(path)[:, :, ::-1]  # BGR -> RGB
+#     return crop_resize_return_pil(image_np)
+
+# 处理共享内存图像 - 8张图模式
+def load_from_shm(shm_name):
+    shm = shared_memory.SharedMemory(name=shm_name)
+    # 新格式: 8张图，每张 1080x1920x3，顺序为 [top0, side0, top1, side1, top2, side2, top3, side3]
+    image_nparr = np.ndarray((8, 1080, 1920, 3), dtype=np.uint8, buffer=shm.buf)
+    image_list = []
+    for i in range(8):
+        # 直接 resize，无需拆分
+        image_list.append(resize_to_pil(image_nparr[i]))
+    shm.close()
+    return image_list
+
+# 主函数
+def load_shiyan_video_internvl(video , bound=None, num_segments=32):
+    if isinstance(video, str) :
+        start_time = time.time()
+        video = video.replace("data:", '')
+
+        if os.path.exists(video):
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                image_paths = sorted(
+                        f for f in os.listdir(video)
+                        if f.lower().endswith(".jpg")
+                    )
+                full_paths = [os.path.join(video, name) for name in image_paths]
+                results = executor.map(process_disk_image, full_paths)
+                image_list = [img for pair in results for img in pair]
+        else:
+            image_list = load_from_shm(video)
+
+        # print("datatime : ", time.time() - start_time)
+        return image_list
+    else :
+        return video
 
 class Internvl2Template(InternvlTemplate):
     VIDEO_SEGMENTS = 8
@@ -117,8 +191,9 @@ class Internvl2Template(InternvlTemplate):
         if media_type == 'image':
             return image_context
         elif media_type == 'video':
-            load_video = partial(load_video_internvl, num_segments=self.video_segments)
-            return self.replace_video2image(load_video, inputs, lambda i: [f'Frame{i + 1}: '] + image_context)
+            load_video = partial(load_shiyan_video_internvl, num_segments=self.video_segments)
+            return self.replace_video2image(load_video, inputs, lambda i: [f'Frame {(i // 2) + 1} {"俯视" if i % 2 == 0 else "侧视"}: '] + image_context)
+            # return self.replace_video2image(load_video, inputs, lambda i: [f'Frame{i + 1}: '] + image_context)
 
     def replace_ref(self, ref: str, index: int, inputs: StdTemplateInputs) -> List[Context]:
         return [f'<ref>{ref}</ref>']

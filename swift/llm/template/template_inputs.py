@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Dict, List, Optional, Union
 
 import json
+import torch
 from PIL import Image
 
 from swift.utils import get_logger
@@ -98,6 +99,106 @@ class InferRequest:
 
 
 @dataclass
+class TensorVideoInferRequest:
+    """
+    Data structure for inference requests with video as torch.Tensor.
+
+    Attributes:
+        messages (Messages):
+            The input conversation in messages format. Each message is a dict containing at least
+            a "role" field (e.g., "user", "assistant", "system") and a "content" field.
+            Example:
+                [{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "video",
+                            "video": "<tensor>",
+                        },
+                        {"type": "text", "text": "Please describe the video."},
+                    ],
+                }]
+
+        images (List[Union[str, Image.Image]]):
+            Optional, a list of images associated with the request.
+            Each image can be a URL, local path, base64 string, or PIL.Image object.
+
+        audios (List[str]):
+            Optional, a list of audio resources associated with the request.
+
+        videos (List[torch.Tensor]):
+            Optional, a list of video tensors associated with the request.
+            Each tensor should have shape (T, C, H, W) or (T, H, W, C) representing
+            frames, channels, height, and width.
+
+        tools (Optional[List[Tool]]):
+            An optional list of tools. These should be organized in the agent_template format for
+            tools requested by the system, for example 'react_en'.
+
+        objects (Dict[str, Any]):
+            Container for additional multimodal objects, grouped by type (key).
+    """
+    messages: Messages
+
+    images: List[Union[str, Image.Image]] = field(default_factory=list)
+    audios: List[str] = field(default_factory=list)
+    videos: List[torch.Tensor] = field(default_factory=list)
+
+    tools: Optional[List[Tool]] = None
+    objects: Dict[str, Any] = field(default_factory=dict)
+    
+    # Optional: user-provided UUIDs for multimodal items to skip hash computation
+    # Format: {"video": ["uuid1", "uuid2", ...], "image": [...], ...}
+    mm_uuids: Optional[Dict[str, List[str]]] = None
+
+    def __post_init__(self):
+        for key in ['images', 'audios']:
+            val = getattr(self, key)
+            if isinstance(val, str):
+                setattr(self, key, [val])
+        # Handle single tensor input for videos
+        if isinstance(self.videos, torch.Tensor):
+            self.videos = [self.videos]
+        assert isinstance(self.messages, list), f'messages: {self.messages}'
+
+    @staticmethod
+    def remove_response(messages) -> Optional[str]:
+        last_role = messages[-1]['role'] if messages else None
+        if last_role == 'assistant':
+            return messages.pop()['content']
+
+    @staticmethod
+    def _to_printable(obj, key: Optional[str] = None):
+        if isinstance(obj, torch.Tensor):
+            return f'<<<tensor:shape={list(obj.shape)}, dtype={obj.dtype}>>>'
+        elif isinstance(obj, str) and key not in {'content', 'text'} and len(obj) >= 1000:
+            return f'<<<base64:{obj[:50]}..>>>'
+        elif isinstance(obj, list):
+            res = []
+            for item in obj:
+                res.append(TensorVideoInferRequest._to_printable(item))
+            return res
+        elif isinstance(obj, dict):
+            res = {}
+            for k, v in obj.items():
+                res[k] = TensorVideoInferRequest._to_printable(v, key=k)
+            return res
+        return obj
+
+    def to_printable(self):
+        # Cannot use asdict directly because torch.Tensor is not JSON serializable
+        result = {
+            'messages': self.messages,
+            'images': self.images,
+            'audios': self.audios,
+            'videos': self.videos,
+            'tools': self.tools,
+            'objects': self.objects,
+        }
+        return TensorVideoInferRequest._to_printable(result)
+
+
+@dataclass
 class RolloutInferRequest(InferRequest):
     """
     An inference request class for rollout scenarios.
@@ -149,6 +250,9 @@ class StdTemplateInputs:
 
     margin: Optional[float] = None  # for reward modeling
     mm_processor_kwargs: Dict[str, Any] = field(default_factory=dict)
+    # User-provided UUIDs for multimodal items to skip hash computation (GPU tensor optimization)
+    # Format: {"video": ["uuid1", "uuid2", ...], "image": [...], ...}
+    mm_uuids: Optional[Dict[str, List[str]]] = None
     extra_kwargs: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):

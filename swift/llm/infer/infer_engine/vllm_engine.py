@@ -368,6 +368,10 @@ class VllmEngine(InferEngine):
             mm_processor_kwargs = inputs.get('mm_processor_kwargs')
             if mm_processor_kwargs:
                 llm_inputs['mm_processor_kwargs'] = mm_processor_kwargs
+            # Pass user-provided UUIDs to skip multimodal hash computation
+            mm_uuids = inputs.get('mm_uuids')
+            if mm_uuids:
+                llm_inputs['multi_modal_uuids'] = mm_uuids
 
             has_task_arg = 'task' in inspect.signature(PoolingParams).parameters
             has_activation_arg = 'activation' in inspect.signature(PoolingParams).parameters
